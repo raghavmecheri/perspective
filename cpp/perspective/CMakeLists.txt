@@ -375,6 +375,10 @@ elseif(PSP_CPP_BUILD OR PSP_PYTHON_BUILD)
 		include_directories( ${Python_INCLUDE_DIRS} )
 
 		if(MACOS)
+			# don't link against build python
+			# https://blog.tim-smith.us/2015/09/python-extension-modules-os-x/
+			set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -undefined dynamic_lookup")
+
 			# on mac, use the vanilla pybind11 finder
 			find_package(pybind11)
 			if(pybind11_FOUND)
@@ -383,11 +387,6 @@ elseif(PSP_CPP_BUILD OR PSP_PYTHON_BUILD)
 			else()
 				# Check if pip installed PyBind is available
 				find_package(Pybind)
-				if(PYTHON_PYBIND_FOUND)
-					# Need to add extra flags due to pybind weirness
-					# https://github.com/pybind/pybind11/blob/7830e8509f2adc97ce9ee32bf99cd4b82089cc4c/tools/pybind11Tools.cmake#L103
-				    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -undefined dynamic_lookup")
-				endif()
 			endif()
 
 		else()
@@ -549,7 +548,13 @@ set (SOURCE_FILES
 
 set(PYTHON_SOURCE_FILES ${SOURCE_FILES}
 	${PSP_PYTHON_SRC}/src/column.cpp
-	)
+)
+
+set(WASM_SOURCE_FILES ${SOURCE_FILES}
+	${PSP_CPP_SRC}/src/cpp/arrow_csv.cpp
+	${PSP_CPP_SRC}/src/cpp/vendor/arrow_single_threaded_reader.cpp
+)
+
 
 set (PYTHON_BINDING_SOURCE_FILES
 	${PSP_PYTHON_SRC}/src/accessor.cpp
@@ -571,7 +576,7 @@ else()
 endif()
 
 if (PSP_WASM_BUILD)
-	add_library(psp ${SOURCE_FILES})
+	add_library(psp ${WASM_SOURCE_FILES})
 	target_compile_definitions(psp PRIVATE PSP_ENABLE_WASM=1)
 	set_target_properties(psp PROPERTIES COMPILE_FLAGS "${ASYNC_MODE_FLAGS}")
 	target_link_libraries(psp arrow)
@@ -642,20 +647,13 @@ elseif(PSP_CPP_BUILD OR PSP_PYTHON_BUILD)
 		endif()
 
 		target_link_libraries(psp ${PYTHON_PYARROW_LIBRARIES})
-		target_link_libraries(binding ${PYTHON_PYARROW_LIBRARIES})		
-
-		if(WIN32)
-			# Don't link
-
-		else()
-			target_link_libraries(psp ${PYTHON_LIBRARIES})
-			target_link_libraries(binding ${PYTHON_LIBRARIES})
-		endif()
+		target_link_libraries(binding ${PYTHON_PYARROW_LIBRARIES})
 
 		target_link_libraries(psp tbb)
 		target_link_libraries(binding tbb)
-
 		target_link_libraries(binding psp)
+		target_compile_options(psp PRIVATE -Wno-deprecated-register)
+		target_compile_options(binding PRIVATE -Wno-deprecated-register)
 
 		# The compiled libraries will be put in CMAKE_LIBRARY_OUTPUT_DIRECTORY by default. In the
 		# setup.py file, we designate this to be in the build/lib.<platform> directory. However,
@@ -675,7 +673,7 @@ elseif(PSP_CPP_BUILD OR PSP_PYTHON_BUILD)
 		endif()
 		########################
 	else()
-		add_library(psp SHARED ${SOURCE_FILES})
+		add_library(psp SHARED ${WASM_SOURCE_FILES})
 
 		# Link perspective against custom-built minimal arrow
 		target_link_libraries(psp arrow)
